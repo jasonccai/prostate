@@ -30,10 +30,10 @@ import cnn
 mode = "p"        # s(sort), st(sort then train), t(train), p(predict), g(GRAD-CAM)
 name = "DCEnew_nodropout_GN"
 weightsT = ""
-weightsPimage = "/home/m203898/0_jason/Prostate/1_DenseNet/results/Oct30_22h22m36s_DCEnew_TRAIN/Epoch_29<-.hdf5"
-weightsPclinc = "/research/projects/jason/Prostate/1_DenseNet/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
+weightsPimage = "/home/m203898/0_jason/Prostate/1_DenseNetOld/results/Oct30_22h22m36s_DCEnew_TRAIN/Epoch_29<-.hdf5"
+weightsPclinc = "/research/projects/jason/Prostate/1_DenseNetOld/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
 valid = True
-includeclinical = False
+includeclinical = True
 external = False
 if external == True:
     includeclinical = False
@@ -175,12 +175,17 @@ def generator(df,filepathi,mode,augment,shear,jitter):
         if zlowb<0:
             zlowb = bbox[2]
     
-        img = img[xlowb:xtopb,ylowb:ytopb,zlowb:ztopb]
+        img = img[xlowb:xtopb,ylowb:ytopb,zlowb:ztopb]  
+        if mode == "grad":
+            imgX = copy.deepcopy(img)
         x = shape[0] / img.shape[0]
         y = shape[1] / img.shape[1]
         z = shape[2] / img.shape[2]
         img = ndimage.zoom(img,(x,y,z),order=1,mode='reflect')
-        return img
+        if mode == "grad":
+            return (img,imgX)
+        else:
+            return img
 
     for i,row in df.iterrows():
         T2W = np.load(os.path.join(filepathi,row["T2W_filename"]))
@@ -190,35 +195,56 @@ def generator(df,filepathi,mode,augment,shear,jitter):
         DCE010 = np.load(os.path.join(filepathi,row["DCE010_filename"]))
         DCE100 = np.load(os.path.join(filepathi,row["DCE100_filename"]))
         T2WL = np.load(os.path.join(filepathl,row["T2W_filename"]))
-        ADCL = np.load(os.path.join(filepathl,row["ADC_filename"]))
         DWIL = np.load(os.path.join(filepathl,row["DWI_filename"]))
         DCEL = np.load(os.path.join(filepathl,row["DCE000_filename"]))
         
         if augment and jitter and (mode=="train" or mode=="debug"):
             upperPx,lowerPx,upperPy,lowerPy,upperPz = np.random.uniform(),np.random.uniform(),np.random.uniform(),np.random.uniform(),np.random.randint(1,2)
-            T2W,ADC,DWI = jitterNreshape(T2W,T2WL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(ADC,ADCL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(DWI,DWIL,upperPx,lowerPx,upperPy,lowerPy,upperPz)
+            T2W,ADC,DWI = jitterNreshape(T2W,T2WL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(ADC,DWIL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(DWI,DWIL,upperPx,lowerPx,upperPy,lowerPy,upperPz)
             DCE000,DCE010,DCE100 = jitterNreshape(DCE000,DCEL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(DCE010,DCEL,upperPx,lowerPx,upperPy,lowerPy,upperPz),jitterNreshape(DCE100,DCEL,upperPx,lowerPx,upperPy,lowerPy,upperPz)
         else:
-            T2W,ADC,DWI = jitterNreshape(T2W,T2WL,0.3,0.3,0.3,0.3,1),jitterNreshape(ADC,ADCL,0.3,0.3,0.3,0.3,1),jitterNreshape(DWI,DWIL,0.3,0.3,0.3,0.3,1)
+            T2W,ADC,DWI = jitterNreshape(T2W,T2WL,0.3,0.3,0.3,0.3,1),jitterNreshape(ADC,DWIL,0.3,0.3,0.3,0.3,1),jitterNreshape(DWI,DWIL,0.3,0.3,0.3,0.3,1)
             DCE000,DCE010,DCE100 = jitterNreshape(DCE000,DCEL,0.3,0.3,0.3,0.3,1),jitterNreshape(DCE010,DCEL,0.3,0.3,0.3,0.3,1),jitterNreshape(DCE100,DCEL,0.3,0.3,0.3,0.3,1)
+            
         if augment and shear!=0 and (mode=="train" or mode=="debug"):
-            shearfactorx = np.random.uniform(-shear,shear); shearfactory = shearfactorx*np.random.uniform(0.75,1.25)*-1
+            shearfactorx = np.random.uniform(-shear,shear)
             T2W,ADC,DWI = random_shear(T2W,shearfactorx,1,0,2,'reflect',interpolation_order=1),random_shear(ADC,shearfactorx,1,0,2,'reflect',interpolation_order=1),random_shear(DWI,shearfactorx,1,0,2,'reflect',interpolation_order=1)
             DCE000,DCE010,DCE100 = random_shear(DCE000,shearfactorx,1,0,2,'reflect',interpolation_order=1),random_shear(DCE010,shearfactorx,1,0,2,'reflect',interpolation_order=1),random_shear(DCE100,shearfactorx,1,0,2,'reflect',interpolation_order=1)
+
             T2W,ADC,DWI,DCE000,DCE010,DCE100 = np.rot90(T2W),np.rot90(ADC),np.rot90(DWI),np.rot90(DCE000),np.rot90(DCE010),np.rot90(DCE100)
+
+            shearfactory = shearfactorx*np.random.uniform(0.75,1.25)*-1
             T2W,ADC,DWI = random_shear(T2W,shearfactory,1,0,2,'reflect',interpolation_order=1),random_shear(ADC,shearfactory,1,0,2,'reflect',interpolation_order=1),random_shear(DWI,shearfactory,1,0,2,'reflect',interpolation_order=1)
             DCE000,DCE010,DCE100 = random_shear(DCE000,shearfactory,1,0,2,'reflect',interpolation_order=1),random_shear(DCE010,shearfactory,1,0,2,'reflect',interpolation_order=1),random_shear(DCE100,shearfactory,1,0,2,'reflect',interpolation_order=1)
+
             T2W,ADC,DWI,DCE000,DCE010,DCE100 = np.rot90(T2W,3),np.rot90(ADC,3),np.rot90(DWI,3),np.rot90(DCE000,3),np.rot90(DCE010,3),np.rot90(DCE100,3)
+        
+        if mode != "grad":
+            T2W,ADC,DWI,DCE000,DCE010,DCE100 = tf.cast(T2W,tf.float32),tf.cast(ADC,tf.float32),tf.cast(DWI,tf.float32),tf.cast(DCE000,tf.float32),tf.cast(DCE010,tf.float32),tf.cast(DCE100,tf.float32)
+            DCE000,DCE010,DCE100 = tf.expand_dims(DCE000,axis=-1),tf.expand_dims(DCE010,axis=-1),tf.expand_dims(DCE100,axis=-1)
+            DCE = tf.concat([DCE000,DCE010,DCE100],axis=-1)
+        else:
+            t2w=copy.deepcopy(T2W);adc=copy.deepcopy(ADC);dwi=copy.deepcopy(DWI);dce000=copy.deepcopy(DCE000);dce010=copy.deepcopy(DCE010);dce100=copy.deepcopy(DCE100)
+            T2W=t2w[0];ADC=adc[0];DWI=dwi[0];DCE000=dce000[0];DCE010=dce010[0];DCE100=dce100[0]
+            T2W,ADC,DWI,DCE000,DCE010,DCE100 = tf.cast(T2W,tf.float32),tf.cast(ADC,tf.float32),tf.cast(DWI,tf.float32),tf.cast(DCE000,tf.float32),tf.cast(DCE010,tf.float32),tf.cast(DCE100,tf.float32)
+            DCE000,DCE010,DCE100 = tf.expand_dims(DCE000,axis=-1),tf.expand_dims(DCE010,axis=-1),tf.expand_dims(DCE100,axis=-1)
+            DCE = tf.concat([DCE000,DCE010,DCE100],axis=-1)
+            dct0 = {"T2W":T2W,"ADC":ADC,"DWI":DWI,"DCE":DCE}
+
+            T2W=t2w[1];ADC=adc[1];DWI=dwi[1];DCE000=dce000[1];DCE010=dce010[1];DCE100=dce100[1]
+            T2W,ADC,DWI,DCE000,DCE010,DCE100 = tf.cast(T2W,tf.float32),tf.cast(ADC,tf.float32),tf.cast(DWI,tf.float32),tf.cast(DCE000,tf.float32),tf.cast(DCE010,tf.float32),tf.cast(DCE100,tf.float32)
+            DCE000,DCE010,DCE100 = tf.expand_dims(DCE000,axis=-1),tf.expand_dims(DCE010,axis=-1),tf.expand_dims(DCE100,axis=-1)
+            DCE = tf.concat([DCE000,DCE010,DCE100],axis=-1)            
+            dct1 = {"T2W":T2W,"ADC":ADC,"DWI":DWI,"DCE":DCE}
             
-        T2W,ADC,DWI,DCE000,DCE010,DCE100 = tf.cast(T2W,tf.float32),tf.cast(ADC,tf.float32),tf.cast(DWI,tf.float32),tf.cast(DCE000,tf.float32),tf.cast(DCE010,tf.float32),tf.cast(DCE100,tf.float32)
-        DCE000,DCE010,DCE100 = tf.expand_dims(DCE000,axis=-1),tf.expand_dims(DCE010,axis=-1),tf.expand_dims(DCE100,axis=-1)
-        DCE = tf.concat([DCE000,DCE010,DCE100],axis=-1)
- 
         label = np.array(row["Final_Dx"]).reshape(-1)
         label = tf.cast(label, tf.int16)
         
-        if mode == "debug" or mode == "grad":
-            yield {"T2W":T2W,"ADC":ADC,"DWI":DWI,"DCE":DCE}, label, row["T2W_filename"]
+        row = {"T2W_filename":row["T2W_filename"],"ADC_filename":row["ADC_filename"],"DWI_filename":row["DWI_filename"],"DCE000_filename":row["DCE000_filename"],"DCE010_filename":row["DCE010_filename"],"DCE100_filename":row["DCE100_filename"]}
+        if mode == "debug":
+            yield {"T2W":T2W,"ADC":ADC,"DWI":DWI,"DCE":DCE}, label, row
+        if mode == "grad":
+            yield dct0, dct1, label, row
         else:
             yield {"T2W":T2W,"ADC":ADC,"DWI":DWI,"DCE":DCE}, label
 
@@ -235,30 +261,35 @@ def plot(dct,label,filename=None,ind=0,probability=None,heatmap=None,threshold=0
     for i in np.linspace(0,shape[2]-1,shape[2]-1):
         i = int(i)
         plt.figure(dpi=300)
+        
         ax = plt.subplot(231)
         plt.imshow(np.rot90(T2W[...,i].numpy()),cmap="gray");plt.axis('off');ax.set_title("T2")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        
         ax = plt.subplot(232)
         plt.imshow(np.rot90(ADC[...,i].numpy()),cmap="gray");plt.axis('off');ax.set_title("ADC")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        
         ax = plt.subplot(233)
         plt.imshow(np.rot90(DWI[...,i].numpy()),cmap="gray");plt.axis('off');ax.set_title("DWI")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        
         ax = plt.subplot(234)
         plt.imshow(np.rot90(DCE[...,i,0].numpy()),cmap="gray");plt.axis('off');ax.set_title("T1 DCE 0s")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
         ax = plt.subplot(235)
         plt.imshow(np.rot90(DCE[...,i,1].numpy()),cmap="gray");plt.axis('off');ax.set_title("T1 DCE 10s")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
         ax = plt.subplot(236)
         plt.imshow(np.rot90(DCE[...,i,2].numpy()),cmap="gray");plt.axis('off');ax.set_title("T1 DCE 100s")
         heatmap = ma.masked_where(heatmap == 0, heatmap)
-        # plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        plt.imshow(heatmap[...,i],"cool",alpha = 0.35)
+        
         # plt.colorbar()
         if isinstance(filename,tf.Tensor) and isinstance(probability,tf.Tensor):
             plt.suptitle(str(filename[0].numpy())[2:-1]+" | "+str(tf.squeeze(label[ind]).numpy())+" | "+str(tf.squeeze(probability).numpy()))
@@ -276,7 +307,7 @@ def plot(dct,label,filename=None,ind=0,probability=None,heatmap=None,threshold=0
 # dfTR = pd.read_csv(traincsv,index_col=0)
 # while True:
 #     for dct,label,filename in generator(dfTR,filepathi,"debug",augment,shear,jitter):
-#         plot(dct,label,filename,ind=None)
+#         plot(dct,label,filename["T2W_filename"],ind=None)
 
 ##################################################################################################        
 
@@ -285,11 +316,17 @@ if mode == "t" or mode == "st":
     dfTR = pd.read_csv(traincsv,index_col=0)
     generatorTR = lambda: generator(dfTR,filepathi,"train",augment,shear,jitter)
     datasetTR = Dataset.from_generator(generatorTR,output_types=(({"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},tf.int16)),
-                                       output_shapes=(({"T2W":shape,"ADC":shape,"DWI":shape,"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
+                                       output_shapes=(({"T2W":(shape[0],shape[1],shape[2]),"ADC":(shape[0],shape[1],shape[2]),"DWI":(shape[0],shape[1],shape[2]),"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
     
     def augmentor(imagedct,lr_flip,rotate,deform,gamma,shear):
-        T2W = imagedct["T2W"]; ADC = imagedct["ADC"]; DWI = imagedct["DWI"]; DCE = imagedct["DCE"]
+        T2W = imagedct["T2W"]
+        
+        ADC = imagedct["ADC"]
+        DWI = imagedct["DWI"]
+        
+        DCE = imagedct["DCE"]
         DCE000,DCE010,DCE100 = DCE[...,0],DCE[...,1],DCE[...,2]
+        
         if lr_flip and tf.cast(tf.random.uniform((),0,2,tf.int32),tf.bool): # WARNING: TF FLIP UP DOWN FLIPS LEFT RIGHT because the image is loaded 90 degrees rotated clockwise.
             T2W,ADC,DWI = tf.image.flip_up_down(T2W),tf.image.flip_up_down(ADC),tf.image.flip_up_down(DWI)
             DCE000,DCE010,DCE100 = tf.image.flip_up_down(DCE000),tf.image.flip_up_down(DCE010),tf.image.flip_up_down(DCE100)
@@ -306,8 +343,10 @@ if mode == "t" or mode == "st":
             gam = tf.random.uniform((),1-gamma,1+gamma)
             T2W,DWI = tf.image.adjust_gamma(T2W,gam),tf.image.adjust_gamma(DWI,gam)
             DCE000,DCE010,DCE100 = tf.image.adjust_gamma(DCE000,gam),tf.image.adjust_gamma(DCE010,gam),tf.image.adjust_gamma(DCE100,gam)
+
         DCE000,DCE010,DCE100 = tf.expand_dims(DCE000,axis=-1),tf.expand_dims(DCE010,axis=-1),tf.expand_dims(DCE100,axis=-1)
         DCE = tf.concat([DCE000,DCE010,DCE100],axis=-1)
+
         imagedct["T2W"] = T2W ; imagedct["ADC"] = ADC ; imagedct["DWI"] = DWI ; imagedct["DCE"] = DCE
         return imagedct
 
@@ -318,7 +357,7 @@ if mode == "t" or mode == "st":
     dfVA = pd.read_csv(validcsv,index_col=0)
     generatorVA = lambda: generator(dfVA,filepathi,"valid",augment,shear,jitter)
     datasetVA = Dataset.from_generator(generatorVA,output_types=(({"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},tf.int16)),
-                                       output_shapes=(({"T2W":shape,"ADC":shape,"DWI":shape,"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
+                                       output_shapes=(({"T2W":(shape[0],shape[1],shape[2]),"ADC":(shape[0],shape[1],shape[2]),"DWI":(shape[0],shape[1],shape[2]),"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
     datasetVA = datasetVA.batch(batch_size).prefetch(buffer_size=autotune)
     
     # while True:
@@ -360,7 +399,7 @@ if mode == "p":
     GT = np.array(dfTE["Final_Dx"])
     generatorTE = lambda: generator(dfTE,filepathi,"test",augment,shear,jitter)
     datasetTE = Dataset.from_generator(generatorTE,output_types=(({"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},tf.int16)),
-                                       output_shapes=(({"T2W":shape,"ADC":shape,"DWI":shape,"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
+                                       output_shapes=(({"T2W":(shape[0],shape[1],shape[2]),"ADC":(shape[0],shape[1],shape[2]),"DWI":(shape[0],shape[1],shape[2]),"DCE":(shape[0],shape[1],shape[2],3)},(1,))))
     datasetTE = datasetTE.batch(1)
     imagemodel = load_model(weightsPimage)
     clincmodel = load_model(weightsPclinc)
@@ -369,9 +408,11 @@ if mode == "p":
     print("image model prediction...")
     # imageresult = imagemodel.predict(datasetTE, batch_size=batch_size, verbose=1)
     # imageresult = imageresult[:,0]
-    # imageresult = np.random.random(len(dfTE))
-    with open("/home/m203898/0_jason/Prostate/1_DenseNetOld/results/Aug26_23h19m32s_PREDICT_pickle_COMBINED400.dat", "rb") as f:
+    imageresult = np.random.random(len(dfTE))
+    with open("/home/m203898/0_jason/Prostate/1_DenseNet/results/Nov02_18h28m08s_PREDICT_pickle.dat", "rb") as f:
         GT,imageresult,resultdct,cm,fpr,tpr,index = pickle.load(f)
+    # with open("/home/m203898/0_jason/Prostate/1_DenseNet/results/Nov02_22h23m06s_PREDICT_pickle.dat", "rb") as f:
+        # GT,imageresult,resultdct,cm,fpr,tpr,index = pickle.load(f)
     dfTE["image_preds"] = imageresult
     result = imageresult
     
@@ -411,18 +452,13 @@ if mode == "p":
         clincauc = roc_auc_score(outputT, clincresult)
         clincfpr, clinctpr, clincthresholds = roc_curve(outputT, clincresult)
     ###### 3. Calculate Youden Statistic ######
-    radsfpr = interp1d(tpr, fpr)(radstpr)
-    # youdenJ = tpr-fpr
-    # index = np.argmax(youdenJ)
-    # thresholdOpt = round(thresholds[index],ndigits = 4)
-    # validation datset: 0.3265 (image model path), 0.3038 (image model all), 0.3675 (combined model path), 0.3783 (combined model all)
-    #####
     # gmean = np.sqrt(tpr * (1 - fpr))
+    radsfpr = interp1d(tpr, fpr)(radstpr)
+    youdenJ = tpr-fpr
+    index = np.argmax(youdenJ)
+    thresholdOpt = round(thresholds[index],ndigits = 4)
     # youdenJOpt = round(gmean[index], ndigits = 4)
     # print('Best Threshold: {} with Youden J statistic: {}'.format(thresholdOpt, youdenJOpt))
-    ######
-    thresholdOpt = 0.3783
-    index = (np.abs(thresholds-thresholdOpt)).argmin()
     resultdct["Optimal FPR"] = round(fpr[index], ndigits = 4)
     resultdct["Optimal TPR"] = round(tpr[index], ndigits = 4)
     resultdct["Optimal Threshold"] = thresholdOpt
@@ -454,18 +490,16 @@ if mode == "p":
     plt.clf()
     ###### 5B. Plot ROC ######    
     plt.figure(dpi=200)
-    plt.scatter(fpr[index], tpr[index], marker='o', s = 10, color='red', label='Best',zorder=100)
-    plt.scatter(radsfpr, radstpr, marker='o', s = 10, color='orange', label='Rads',zorder=200)
-    plt.plot(fpr, tpr, marker=',', linewidth=1) ; plt.plot([0,1],[0,1],linestyle='--', linewidth=1, color="orange")
+    plt.scatter(fpr[index], tpr[index], marker='o', color='red', label='Best',zorder=100)
+    plt.scatter(radsfpr, radstpr, marker='o', color='orange', label='Rads',zorder=200)
+    plt.plot(fpr, tpr, marker='.') ; plt.plot([0,1],[0,1],linestyle='--', color="orange")
     plt.axis("square")
     plt.xlabel('False Positive Rate') ; plt.ylabel('True Positive Rate')
     string = ""
     for stat,value in resultdct.items():
         string += stat+": "+"%.3f"%value+"\n"
     plt.text(-0.1,-1.2,string)
-    fig = plt.gcf()
-    fig.savefig(savedir+"_ROC.png",bbox_inches='tight')
-    plt.show()
+    fig = plt.gcf() ; fig.savefig(savedir+"_ROC.png",bbox_inches='tight') ; plt.show()
     plt.clf()
     ###### 6. Save ######
     with open(savedir+"_pickle.dat","wb+") as f:
@@ -479,10 +513,10 @@ if mode == "g":
     dfGR = pd.read_csv(testscsv,index_col=0).reset_index()
     GT = np.array(dfGR["Final_Dx"])
     generatorGR = lambda: generator(dfGR,filepathi,"grad",augment,shear,jitter)
-    datasetGR = Dataset.from_generator(generatorGR,output_types=(({"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},tf.int16,tf.string)))
+    datasetGR = Dataset.from_generator(generatorGR,output_types=(({"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},{"T2W":tf.float32,"ADC":tf.float32,"DWI":tf.float32,"DCE":tf.float32},tf.int16,{"T2W_filename":tf.string,"ADC_filename":tf.string,"DWI_filename":tf.string,"DCE000_filename":tf.string,"DCE010_filename":tf.string,"DCE100_filename":tf.string})))
     datasetGR = datasetGR.batch(1)
     model = load_model(weightsPimage)
-    
+        
     def make_gradcam_heatmap(inputlst,model,ind):
         grad_model = Model([model.inputs],[model.get_layer("gradcam_layer").output, model.output])
         with tf.GradientTape() as tape:
@@ -496,22 +530,41 @@ if mode == "g":
         heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
         return heatmap.numpy(),probability
 
-    for dct,label,filename in datasetGR.take(100):
-        if int(label.numpy()) == 1:
-            ind=0 # which element of the batch to plot?
-            inputlst = [dct["T2W"],dct["ADC"],dct["DWI"],dct["DCE"]]
-            heatmap,probability = make_gradcam_heatmap(inputlst,model,ind)
-            Idim0,Idim1,Idim2 = heatmap.shape[0],heatmap.shape[1],heatmap.shape[2]
-            Odim0,Odim1,Odim2 = shape
-            fact0,fact1,fact2 = Odim1/Idim1,Odim0/Idim0,Odim2/Idim2 # because the image is loaded 90 deg rotated clockwise
-            heatmap = ndimage.zoom(heatmap,(fact0,fact1,fact2),order=1)
-            if probability.numpy() < 0.1:
-            # if True:
-                plot(dct,label,filename,ind,probability,heatmap=heatmap,threshold=0.1)
+    def tfheatmap(heatmap,shape):
+        Idim0,Idim1,Idim2 = heatmap.shape[0],heatmap.shape[1],heatmap.shape[2]
+        Odim0,Odim1,Odim2 = shape
+        fact0,fact1,fact2 = Odim0/Idim0,Odim1/Idim1,Odim2/Idim2
+        heatmap = ndimage.zoom(heatmap,(fact0,fact1,fact2),order=1)
+        return heatmap
 
-# plt.figure(dpi=200)
-# plt.plot(clincfpr, clinctpr, marker='.') ; plt.plot([0,1],[0,1],linestyle='--', color="orange")
-# plt.xlabel('False Positive Rate') ; plt.ylabel('True Positive Rate')
-# plt.axis("square")
-# plt.show()
-# plt.clf()
+    def to_disk(dct1,filename,heatmap,tfheatmap,ind=0):
+        
+        T2W,ADC,DWI,DCE = dct1["T2W"][ind].numpy(),dct1["ADC"][ind].numpy(),dct1["DWI"][ind].numpy(),dct1["DCE"][ind].numpy()
+        DCE000,DCE010,DCE100 = DCE[...,0], DCE[...,1], DCE[...,2] 
+        cam_folder = "/home/m203898/0_jason/Prostate/1_DenseNetOld/CAM_output/cam"
+        img_folder = "/home/m203898/0_jason/Prostate/1_DenseNetOld/CAM_output/img"
+        
+        def _to_disk(which,whichstr,filename):
+            filename = filename[whichstr].numpy()[0].decode('utf-8').replace("npy","nii.gz")
+            affine = nb.load(os.path.join(filepathI,filename)).affine
+            whichheatmap = tfheatmap(heatmap,which.shape)
+            nb.save(nb.Nifti1Image(whichheatmap,affine),os.path.join(cam_folder,filename))
+            nb.save(nb.Nifti1Image(which,affine),os.path.join(img_folder,filename))
+            
+        _to_disk(T2W,"T2W_filename",filename)    
+        _to_disk(ADC,"ADC_filename",filename)
+        _to_disk(DWI,"DWI_filename",filename)
+        _to_disk(DCE000,"DCE000_filename",filename)
+        _to_disk(DCE010,"DCE010_filename",filename)
+        _to_disk(DCE100,"DCE100_filename",filename)
+        
+    for dct0,dct1,label,filename in datasetGR.take(120):
+        if int(label.numpy()) == 1 and "0115" in str(filename["T2W_filename"][0].numpy()):
+            ind=0 # which element of the batch to plot?
+            inputlst = [dct0["T2W"],dct0["ADC"],dct0["DWI"],dct0["DCE"]]
+            heatmap,probability = make_gradcam_heatmap(inputlst,model,ind)
+            # to_disk(dct1,filename,heatmap,tfheatmap,ind)
+            heatmap = tfheatmap(heatmap,shape)
+            # if probability.numpy() > 0.9:
+            plot(dct0,label,filename["T2W_filename"],ind,probability,heatmap=heatmap,threshold=0.1)
+
