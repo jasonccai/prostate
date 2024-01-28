@@ -30,10 +30,10 @@ import cnn
 mode = "p"        # s(sort), st(sort then train), t(train), p(predict), g(GRAD-CAM)
 name = "DCEnew_nodropout_GN"
 weightsT = ""
-weightsPimage = "/home/m203898/0_jason/Prostate/1_DenseNet/results/Oct30_22h22m36s_DCEnew_TRAIN/Epoch_29<-.hdf5"
-weightsPclinc = "/research/projects/jason/Prostate/1_DenseNet/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
+weightsPimage = "/newresearch/research/projects/jason/Prostate/1_DenseNet/results/Oct30_22h22m36s_DCEnew_TRAIN/Epoch_29<-.hdf5"
+weightsPclinc = "/newresearch/research/projects/jason/Prostate/1_DenseNet/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
 valid = True
-includeclinical = False
+includeclinical = True
 external = False
 if external == True:
     includeclinical = False
@@ -354,7 +354,7 @@ if mode == "p":
     from scipy.interpolate import interp1d
 
     if includeclinical:
-        _, PSArawT, PSATZVT, PSAWGVT, age, outputT = controlboard_clinical.preprocess(testscsv,'te')
+        _, PSArawT, PSATZVT, PSAWGVT, age, outputT = controlboard_clinical.preprocess(testscsv,traincsv,'te')
         inputsT = np.concatenate((PSArawT, PSATZVT, PSAWGVT),axis=-1)
     dfTE = pd.read_csv(testscsv,index_col=0).reset_index().drop('index', 1)
     GT = np.array(dfTE["Final_Dx"])
@@ -370,7 +370,7 @@ if mode == "p":
     # imageresult = imagemodel.predict(datasetTE, batch_size=batch_size, verbose=1)
     # imageresult = imageresult[:,0]
     # imageresult = np.random.random(len(dfTE))
-    with open("/home/m203898/0_jason/Prostate/1_DenseNetOld/results/Aug26_23h19m32s_PREDICT_pickle_COMBINED400.dat", "rb") as f:
+    with open("/newresearch/research/projects/jason/Prostate/1_DenseNetOld/results/Jan23_13h20m34s_PREDICT_pickle_COMBINED400new.dat", "rb") as f:
         GT,imageresult,resultdct,cm,fpr,tpr,index = pickle.load(f)
     dfTE["image_preds"] = imageresult
     result = imageresult
@@ -382,10 +382,10 @@ if mode == "p":
         dfTE.loc[dfTE['PSA_nan']!=0,"clinical_preds"] = clincresult
         ##### 1X. Merge #####
         dfTE['composite_preds'] = 0.2*dfTE["clinical_preds"]+0.8*dfTE["image_preds"]
-        x = dfTE[(dfTE.image_preds < 0.65) & (dfTE.image_preds > 0.35)]
-        x = x[(x.clinical_preds > 0.65) | (x.clinical_preds < 0.35)]
-        x.composite_preds = x.clinical_preds
-        dfTE.loc[x.index, :] = x[:]
+        # x = dfTE[(dfTE.image_preds < 0.65) & (dfTE.image_preds > 0.35)]
+        # x = x[(x.clinical_preds > 0.65) | (x.clinical_preds < 0.35)]
+        # x.composite_preds = x.clinical_preds
+        # dfTE.loc[x.index, :] = x[:]
         ##################  
         dfTE.composite_preds.fillna(dfTE.image_preds, inplace=True)
         result = copy.deepcopy(dfTE['composite_preds'])
@@ -415,13 +415,14 @@ if mode == "p":
     # youdenJ = tpr-fpr
     # index = np.argmax(youdenJ)
     # thresholdOpt = round(thresholds[index],ndigits = 4)
-    # validation datset: 0.3265 (image model path), 0.3038 (image model all), 0.3675 (combined model path), 0.3783 (combined model all)
+    # 5/0
+    # validation datset: 0.3265 (image model path), 0.3038 (image model all), 0.3859 (combined model path), 0.3764 (combined model all)
     #####
     # gmean = np.sqrt(tpr * (1 - fpr))
     # youdenJOpt = round(gmean[index], ndigits = 4)
     # print('Best Threshold: {} with Youden J statistic: {}'.format(thresholdOpt, youdenJOpt))
     ######
-    thresholdOpt = 0.3783
+    thresholdOpt = 0.3764
     index = (np.abs(thresholds-thresholdOpt)).argmin()
     resultdct["Optimal FPR"] = round(fpr[index], ndigits = 4)
     resultdct["Optimal TPR"] = round(tpr[index], ndigits = 4)
