@@ -28,7 +28,18 @@ traincsv = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ztr.csv")
 validcsv = os.path.join(os.path.dirname(os.path.realpath(__file__)), "zva.csv")
 testscsv = os.path.join(os.path.dirname(os.path.realpath(__file__)), "zte.csv")
     
-def preprocess(csv,mode):
+def preprocess(csv,MScsv,mode):
+    
+    MSdf = pd.read_csv(MScsv).reset_index()
+    MSdf = MSdf[MSdf['PSA_nan']!=0]
+    PSArawM = np.log10(MSdf["PSA"]).mean()
+    PSArawS = np.log10(MSdf["PSA"]).std()
+    PSATZVM = np.log10(MSdf["PSA_TZ"]).mean()
+    PSATZVS = np.log10(MSdf["PSA_TZ"]).std()
+    PSAWGVM = np.log10(MSdf["PSA_WG"]).mean()
+    PSAWGVS = np.log10(MSdf["PSA_WG"]).std()
+    ageM = MSdf["age"].mean()
+    ageS = MSdf["age"].std()
     
     def balancecsv(df):
         print("rebalancing dataset...")
@@ -39,37 +50,26 @@ def preprocess(csv,mode):
         del df['index']
         df = df.sample(frac=1).reset_index(drop=True)
         return df
-    def standardizePSA(df):
-        df = np.log10(df)
-        mean = df.mean()
-        std = df.std()
-        df = (df-mean)/std
-        return df
-    def standardizeage(df):
-        mean = df.mean()
-        std = df.std()
-        df = (df-mean)/std
-        return df
-    
+
     df = pd.read_csv(csv).reset_index()
     df = df[df['PSA_nan']!=0]
     if mode == 'tr':
         df = balancecsv(df)
 
-    PSAraw = np.array(standardizePSA(df["PSA"])).astype(np.float32).reshape(-1,1)
-    PSATZV = np.array(standardizePSA(df["PSA_TZ"])).astype(np.float32).reshape(-1,1)
-    PSAWGV = np.array(standardizePSA(df["PSA_WG"])).astype(np.float32).reshape(-1,1)
-    age = np.array(standardizeage(df["age"])).astype(np.float32).reshape(-1,1)
+    PSAraw = np.array(((np.log10(df["PSA"]))-PSArawM)/PSArawS).astype(np.float32).reshape(-1,1)
+    PSATZV = np.array(((np.log10(df["PSA_TZ"]))-PSATZVM)/PSATZVS).astype(np.float32).reshape(-1,1)
+    PSAWGV = np.array(((np.log10(df["PSA_WG"]))-PSAWGVM)/PSAWGVS).astype(np.float32).reshape(-1,1)
+    age = np.array(((df["age"])-ageM)/ageS).astype(np.float32).reshape(-1,1)
     output = np.array(df["Final_Dx"]).astype(np.int16).reshape(-1,1)
-
+    
     return df, PSAraw, PSATZV, PSAWGV, age, output
 
 if __name__ == "__main__":
     mode = "p"
     
     if mode == "t":
-        _, PSAraw, PSATZV, PSAWGV, age, output = preprocess(traincsv,'tr')
-        _, PSArawV, PSATZVV, PSAWGVV, ageV, outputV = preprocess(validcsv,'va')
+        _, PSAraw, PSATZV, PSAWGV, age, output = preprocess(traincsv,traincsv,'tr')
+        _, PSArawV, PSATZVV, PSAWGVV, ageV, outputV = preprocess(validcsv,traincsv,'va')
     
         inputs = np.concatenate((PSAraw, PSATZV, PSAWGV),axis=-1)
         inputsV = np.concatenate((PSArawV, PSATZVV, PSAWGVV),axis=-1)
@@ -100,9 +100,9 @@ if __name__ == "__main__":
 
         savedir = "/home/m203898/Videos/clinical_"
         radstpr = 0.909
-        weights = "/research/projects/jason/Prostate/1_DenseNet/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
+        weights = "/newresearch/research/projects/jason/Prostate/1_DenseNet/results/Nov02_18h22m58s_CLINICAL_TRAIN/Epoch_14.hdf5"
         model = load_model(weights)
-        dfTE, PSArawT, PSATZVT, PSAWGVT, ageT, outputT = preprocess(testscsv,'te')
+        dfTE, PSArawT, PSATZVT, PSAWGVT, ageT, outputT = preprocess(testscsv,testscsv,'te')
         inputsT = np.concatenate((PSArawT, PSATZVT, PSAWGVT),axis=-1)
         
         result = model.predict(inputsT)
@@ -125,13 +125,13 @@ if __name__ == "__main__":
         radsfpr = interp1d(tpr, fpr)(radstpr)
         # youdenJ = tpr-fpr
         # index = np.argmax(youdenJ)
-        # thresholdOpt = round(thresholds[index],ndigits = 4) # 0.3865 path, 0.6 all
+        # thresholdOpt = round(thresholds[index],ndigits = 4) # 0.4875 path, 0.4208 all
         ######
         # gmean = np.sqrt(tpr * (1 - fpr))
         # youdenJOpt = round(gmean[index], ndigits = 4)
         # print('Best Threshold: {} with Youden J statistic: {}'.format(thresholdOpt, youdenJOpt))
         ######
-        thresholdOpt = 0.6
+        thresholdOpt = 0.4208
         index = (np.abs(thresholds-thresholdOpt)).argmin()
         resultdct["Optimal FPR"] = round(fpr[index], ndigits = 4)
         resultdct["Optimal TPR"] = round(tpr[index], ndigits = 4)
